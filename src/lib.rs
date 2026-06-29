@@ -169,10 +169,7 @@ impl ImageServer {
         // Populate the cache with images from configured sources
         self.populate_cache().await;
         if self.state.read().await.cache.size() == 0 {
-            tracing::error!("No images found in cache, please check your configuration");
-            return Err(anyhow!(
-                "No images found in cache, please check your configuration"
-            ));
+            tracing::warn!("No images found in cache, image routes will return 500");
         }
 
         let executor = auto::Builder::new(TokioExecutor::new());
@@ -316,8 +313,8 @@ pub async fn read_image_from_url(url: &Url) -> Result<cache::CacheValue> {
 /// # Errors
 ///
 /// should be Infallible
-pub async fn handle_request(
-    req: Request<hyper::body::Incoming>,
+pub async fn handle_request<B>(
+    req: Request<B>,
     state: Arc<RwLock<ServerState>>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let path = req.uri().path();
@@ -330,9 +327,7 @@ pub async fn handle_request(
             Ok(response) => Ok(response),
             Err(err) => {
                 tracing::error!("Failed to get random image: {err}");
-                let mut not_found = Response::new(Full::new(Bytes::from("Not Found")));
-                *not_found.status_mut() = hyper::StatusCode::NOT_FOUND;
-                Ok(not_found)
+                Ok(internal_server_error())
             }
         },
         path if random_extension(path).is_some() => {
@@ -341,9 +336,7 @@ pub async fn handle_request(
                 Ok(response) => Ok(response),
                 Err(err) => {
                     tracing::error!("Failed to get random file: {err}");
-                    let mut not_found = Response::new(Full::new(Bytes::from("Not Found")));
-                    *not_found.status_mut() = hyper::StatusCode::NOT_FOUND;
-                    Ok(not_found)
+                    Ok(internal_server_error())
                 }
             }
         }
@@ -351,9 +344,7 @@ pub async fn handle_request(
             Ok(response) => Ok(response),
             Err(err) => {
                 tracing::error!("Failed to get sequential image: {err}");
-                let mut not_found = Response::new(Full::new(Bytes::from("Not Found")));
-                *not_found.status_mut() = hyper::StatusCode::NOT_FOUND;
-                Ok(not_found)
+                Ok(internal_server_error())
             }
         },
         _ => {
@@ -362,6 +353,12 @@ pub async fn handle_request(
             Ok(not_found)
         }
     }
+}
+
+fn internal_server_error() -> Response<Full<Bytes>> {
+    let mut response = Response::new(Full::new(Bytes::from("Internal Server Error")));
+    *response.status_mut() = hyper::StatusCode::INTERNAL_SERVER_ERROR;
+    response
 }
 
 fn random_extension(path: &str) -> Option<&str> {
@@ -487,6 +484,20 @@ mod tests {
         assert_eq!(random_extension("/pdf"), None);
         assert_eq!(random_extension("/random/txt"), None);
         assert_eq!(random_extension("/random/pdf/extra"), None);
+    }
+
+    #[rstest]
+    #[case("/random")]
+    #[case("/random/jpg")]
+    #[case("/sequential")]
+    #[tokio::test]
+    async fn test_handle_request_empty_cache_image_routes_return_500(#[case] path: &str) {
+        let request = Request::builder().uri(path).body(()).unwrap();
+        let state = Arc::new(RwLock::new(ServerState::default()));
+
+        let response = handle_request(request, state).await.unwrap();
+
+        assert_eq!(response.status(), hyper::StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[rstest]
