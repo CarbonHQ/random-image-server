@@ -28,6 +28,7 @@ RUN addgroup --system random-image-server && \
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/random-image-server /usr/local/bin/random-image-server
+COPY ./config.toml /etc/random-image-server/config.toml
 
 # Create the configuration directory
 RUN mkdir -p /etc/random-image-server

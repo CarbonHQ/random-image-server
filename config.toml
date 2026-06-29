@@ -2,12 +2,7 @@
 port = 8080 # The port the server will listen on
 host = "0.0.0.0" # The host the server will bind to
 log_level = "info" # The log level for the server, can be "error", "warn", "info", "debug", or "trace"
-sources = [
-    "/path/to/image.jpg", 
-    "/path/to/another/image.png",
-    "/path/to/image/directory", 
-    "http://example.com/images"
-]
+sources = ["/assets"]
 
 [cache]
 # Configuration for the cache backend
