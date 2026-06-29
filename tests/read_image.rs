@@ -50,7 +50,7 @@ fn test_read_image_from_path_unsupported_extension() {
         result
             .unwrap_err()
             .to_string()
-            .contains("Unsupported image file extension")
+            .contains("Unsupported file extension")
     );
 }
 
@@ -85,4 +85,11 @@ fn test_read_image_from_path_different_extensions() {
     fs::write(&png_path, &test_data).unwrap();
     let result = read_image_from_path(&png_path);
     assert!(result.is_ok());
+
+    // Test .pdf
+    let pdf_path = temp_dir.path().join("test.pdf");
+    fs::write(&pdf_path, &test_data).unwrap();
+    let result = read_image_from_path(&pdf_path);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap().content_type, "application/pdf");
 }

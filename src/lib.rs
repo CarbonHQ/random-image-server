@@ -26,6 +26,11 @@ pub mod env;
 pub mod termination;
 
 pub const ALLOWED_IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif"];
+pub const ALLOWED_FILE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "pdf"];
+
+fn is_allowed_file_extension(extension: &str) -> bool {
+    ALLOWED_FILE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+}
 
 /// The main server structure
 pub struct ImageServer {
@@ -86,12 +91,12 @@ impl ImageServer {
                         path.clone()
                     });
                     if path.extension().is_some_and(|ext| {
-                        ALLOWED_IMAGE_EXTENSIONS.contains(&ext.to_string_lossy().as_ref())
+                        is_allowed_file_extension(ext.to_string_lossy().as_ref())
                     }) {
-                        tracing::info!("Loading image from file path: {}", path.display());
-                        // read the image file from the path and store it in the cache
-                        let Ok(image) = read_image_from_path(&path) else {
-                            tracing::error!("Failed to read image file: {}", path.display());
+                        tracing::info!("Loading file from path: {}", path.display());
+                        // read the file from the path and store it in the cache
+                        let Ok(image) = read_file_from_path(&path) else {
+                            tracing::error!("Failed to read file: {}", path.display());
                             continue;
                         };
                         let key = cache::CacheKey::ImagePath(path.clone());
@@ -100,7 +105,7 @@ impl ImageServer {
                             tracing::error!("Failed to store image in cache: {err}");
                         }
                     } else {
-                        tracing::warn!("Unsupported image file extension: {}", path.display());
+                        tracing::warn!("Unsupported file extension: {}", path.display());
                     }
                 }
                 ImageSource::Path(path) if path.is_dir() => {
@@ -120,13 +125,13 @@ impl ImageServer {
                             e.path()
                                 .extension()
                                 .and_then(|ext| ext.to_str())
-                                .is_some_and(|ext| ALLOWED_IMAGE_EXTENSIONS.contains(&ext))
+                                .is_some_and(is_allowed_file_extension)
                         })
                         .for_each(|entry| {
                             let path = entry.path().to_path_buf();
-                            tracing::info!("Loading image from file: {}", path.display());
-                            // read the image file and store it in the cache
-                            match read_image_from_path(&path) {
+                            tracing::info!("Loading file: {}", path.display());
+                            // read the file and store it in the cache
+                            match read_file_from_path(&path) {
                                 Ok(image) => {
                                     let key = cache::CacheKey::ImagePath(path.clone());
                                     let set_result = state.cache.set(key, image);
@@ -136,7 +141,7 @@ impl ImageServer {
                                 }
                                 Err(e) => {
                                     tracing::error!(
-                                        "Failed to read image from path {}: {e}",
+                                        "Failed to read file from path {}: {e}",
                                         path.display(),
                                     );
                                 }
@@ -229,30 +234,36 @@ impl Default for ImageServer {
 /// # Errors
 ///
 /// Returns an error if the file does not exist, is not a file, or has an unsupported extension.
-pub fn read_image_from_path(path: &PathBuf) -> Result<cache::CacheValue> {
+pub fn read_file_from_path(path: &PathBuf) -> Result<cache::CacheValue> {
     let path_display = path.display();
     if !path.exists() || !path.is_file() {
-        return Err(anyhow!("Image file does not exist: {path_display}"));
+        return Err(anyhow!("File does not exist: {path_display}"));
     }
     let Some(ext) = path.extension().and_then(|ext| ext.to_str()) else {
-        return Err(anyhow!("Image file has no extension: {path_display}"));
+        return Err(anyhow!("File has no extension: {path_display}"));
     };
-    if !ALLOWED_IMAGE_EXTENSIONS.contains(&ext) {
-        return Err(anyhow!(
-            "Unsupported image file extension: {}",
-            path.display()
-        ));
+    if !is_allowed_file_extension(ext) {
+        return Err(anyhow!("Unsupported file extension: {}", path.display()));
     }
 
-    let image_data = fs::read(path).map_err(|e| anyhow!("Failed to read image file: {e}"))?;
+    let image_data = fs::read(path).map_err(|e| anyhow!("Failed to read file: {e}"))?;
     let content_type = mime_guess::from_path(path)
         .first()
-        .ok_or_else(|| anyhow!("Failed to determine content type for image file: {path_display}"))?
+        .ok_or_else(|| anyhow!("Failed to determine content type for file: {path_display}"))?
         .to_string();
     Ok(cache::CacheValue {
         data: image_data,
         content_type,
     })
+}
+
+/// Read a supported file from the given path and return it as a `CacheValue`
+///
+/// # Errors
+///
+/// Returns an error if the file does not exist, is not a file, or has an unsupported extension.
+pub fn read_image_from_path(path: &PathBuf) -> Result<cache::CacheValue> {
+    read_file_from_path(path)
 }
 
 /// Fetch an image from a URL and return it as a `CacheValue`
@@ -261,6 +272,16 @@ pub fn read_image_from_path(path: &PathBuf) -> Result<cache::CacheValue> {
 ///
 /// Returns an error if the image cannot be fetched or if the content type is unsupported.
 pub async fn read_image_from_url(url: &Url) -> Result<cache::CacheValue> {
+    let Some(ext) = std::path::Path::new(url.path())
+        .extension()
+        .and_then(|ext| ext.to_str())
+    else {
+        return Err(anyhow!("URL has no file extension: {url}"));
+    };
+    if !is_allowed_file_extension(ext) {
+        return Err(anyhow!("Unsupported URL file extension: {url}"));
+    }
+
     let response = reqwest::get(url.as_str())
         .await
         .map_err(|e| anyhow!("Failed to fetch image from URL: {e}"))?;
@@ -278,10 +299,6 @@ pub async fn read_image_from_url(url: &Url) -> Result<cache::CacheValue> {
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| anyhow!("Failed to get Content-Type header from response"))?
         .to_string();
-
-    if !ALLOWED_IMAGE_EXTENSIONS.contains(&content_type.split('/').next_back().unwrap_or("")) {
-        return Err(anyhow!("Unsupported image content type: {content_type}"));
-    }
 
     let data = response
         .bytes()
@@ -303,7 +320,8 @@ pub async fn handle_request(
     req: Request<hyper::body::Incoming>,
     state: Arc<RwLock<ServerState>>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
-    match req.uri().path() {
+    let path = req.uri().path();
+    match path {
         "/" => Ok(Response::new(Full::new(Bytes::from(
             "Welcome to the Random Image Server!",
         )))),
@@ -317,6 +335,18 @@ pub async fn handle_request(
                 Ok(not_found)
             }
         },
+        path if random_extension(path).is_some() => {
+            let extension = random_extension(path).expect("checked above");
+            match handle_random_file_by_extension(state, extension).await {
+                Ok(response) => Ok(response),
+                Err(err) => {
+                    tracing::error!("Failed to get random file: {err}");
+                    let mut not_found = Response::new(Full::new(Bytes::from("Not Found")));
+                    *not_found.status_mut() = hyper::StatusCode::NOT_FOUND;
+                    Ok(not_found)
+                }
+            }
+        }
         "/sequential" => match handle_sequential_image(state).await {
             Ok(response) => Ok(response),
             Err(err) => {
@@ -332,6 +362,12 @@ pub async fn handle_request(
             Ok(not_found)
         }
     }
+}
+
+fn random_extension(path: &str) -> Option<&str> {
+    path.strip_prefix("/random/")
+        .filter(|extension| !extension.is_empty() && !extension.contains('/'))
+        .filter(|extension| is_allowed_file_extension(extension))
 }
 
 /// Handle random image serving
@@ -356,6 +392,35 @@ pub async fn handle_random_image(state: Arc<RwLock<ServerState>>) -> Result<Resp
             response
                 .headers_mut()
                 .insert(hyper::header::CONTENT_TYPE, image.content_type.parse()?);
+            Ok(response)
+        },
+    )
+}
+
+/// Handle random file serving for a requested source extension
+///
+/// # Errors
+///
+/// Returns an error if no files of the requested extension are configured.
+pub async fn handle_random_file_by_extension(
+    state: Arc<RwLock<ServerState>>,
+    extension: &str,
+) -> Result<Response<Full<Bytes>>> {
+    let extension = extension.trim_start_matches('.').to_ascii_lowercase();
+    if !ALLOWED_FILE_EXTENSIONS.contains(&extension.as_str()) {
+        return Err(anyhow!("Unsupported file extension: {extension}"));
+    }
+
+    let state = state.read().await;
+    state.cache.get_random_by_extension(&extension).map_or_else(
+        || Err(anyhow!("No configured files with extension: {extension}")),
+        |file| {
+            let body = Full::new(Bytes::from(file.data));
+            let mut response = Response::new(body);
+            *response.status_mut() = hyper::StatusCode::OK;
+            response
+                .headers_mut()
+                .insert(hyper::header::CONTENT_TYPE, file.content_type.parse()?);
             Ok(response)
         },
     )
@@ -410,6 +475,18 @@ mod tests {
         assert!(ALLOWED_IMAGE_EXTENSIONS.contains(&"webp"));
         assert!(ALLOWED_IMAGE_EXTENSIONS.contains(&"gif"));
         assert_eq!(ALLOWED_IMAGE_EXTENSIONS.len(), 5);
+
+        assert!(ALLOWED_FILE_EXTENSIONS.contains(&"pdf"));
+        assert_eq!(ALLOWED_FILE_EXTENSIONS.len(), 6);
+    }
+
+    #[test]
+    fn test_random_extension_route() {
+        assert_eq!(random_extension("/random/pdf"), Some("pdf"));
+        assert_eq!(random_extension("/random.jpg"), None);
+        assert_eq!(random_extension("/pdf"), None);
+        assert_eq!(random_extension("/random/txt"), None);
+        assert_eq!(random_extension("/random/pdf/extra"), None);
     }
 
     #[rstest]

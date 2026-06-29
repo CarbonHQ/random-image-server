@@ -19,6 +19,9 @@ pub trait CacheBackend: std::fmt::Debug + Send + Sync {
     /// Get a random image from the cache
     fn get_random(&self) -> Option<CacheValue>;
 
+    /// Get a random cached file whose source has the requested extension
+    fn get_random_by_extension(&self, extension: &str) -> Option<CacheValue>;
+
     /// Store an image in the cache with its key
     ///
     /// # Errors
@@ -54,6 +57,28 @@ pub enum CacheKey {
     ImageUrl(Url),
     /// Cache key for an image path
     ImagePath(PathBuf),
+}
+
+impl CacheKey {
+    #[must_use]
+    pub fn has_extension(&self, extension: &str) -> bool {
+        let extension = extension.trim_start_matches('.').to_ascii_lowercase();
+        self.extension()
+            .is_some_and(|source_extension| source_extension == extension)
+    }
+
+    fn extension(&self) -> Option<String> {
+        match self {
+            Self::ImageUrl(url) => std::path::Path::new(url.path())
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(str::to_ascii_lowercase),
+            Self::ImagePath(path) => path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(str::to_ascii_lowercase),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +118,16 @@ impl CacheBackend for InMemoryCache {
 
     fn get_random(&self) -> Option<CacheValue> {
         let keys: Vec<&CacheKey> = self.cache.keys().collect();
+        keys.choose(&mut rand::rng())
+            .and_then(|&random_key| self.cache.get(random_key).cloned())
+    }
+
+    fn get_random_by_extension(&self, extension: &str) -> Option<CacheValue> {
+        let keys: Vec<&CacheKey> = self
+            .cache
+            .keys()
+            .filter(|key| key.has_extension(extension))
+            .collect();
         keys.choose(&mut rand::rng())
             .and_then(|&random_key| self.cache.get(random_key).cloned())
     }
@@ -187,6 +222,17 @@ impl CacheBackend for FileSystemCache {
 
     fn get_random(&self) -> Option<CacheValue> {
         let keys: Vec<&CacheKey> = self.cache.keys().collect();
+        keys.choose(&mut rand::rng())
+            .copied()
+            .and_then(|random_key| self.get(random_key.clone()))
+    }
+
+    fn get_random_by_extension(&self, extension: &str) -> Option<CacheValue> {
+        let keys: Vec<&CacheKey> = self
+            .cache
+            .keys()
+            .filter(|key| key.has_extension(extension))
+            .collect();
         keys.choose(&mut rand::rng())
             .copied()
             .and_then(|random_key| self.get(random_key.clone()))

@@ -8,18 +8,19 @@ A simple http server that returns a random image from a pre-configured directory
 The server exposes the following endpoints:
 
 - `GET /health`: Returns a 200 OK response to indicate the server is running.
-- `GET /random`: Returns a random image from the configured sources.
+- `GET /random`: Returns a random file from the configured sources.
+- `GET /random/{extension}`: Returns a random file from sources with the requested extension, for example `/random/pdf`.
 - `GET /sequential`: Returns the next image in sequence from the configured sources.
 
 ## Features
 
-- Random image serving: Returns a random image from among the configured sources.
+- Random file serving: Returns a random image or PDF from among the configured sources.
 - Sequential image serving: Enumerates images sequentially from the configured sources.
 - In-memory caching: Caches images at startup for fast access.
 - File system caching: Caches images on disk for reduced memory usage.
   - if cached images are modified externally, the server will detect this and invalidate the entry in the cache.
     - TODO: instead, the server should reload the image from the source and update the cache.
-- Can serve png, jpg, and webp images, as well as animated gifs.
+- Can serve png, jpg, and webp images, animated gifs, and PDFs.
 - Supports both local file paths and URLs as image sources.
 - Configurable via a `config.toml` file.
 - Graceful shutdown on termination signals.
@@ -38,6 +39,7 @@ log_level = "info" # The log level for the server, can be "error", "warn", "info
 sources = [
     "/path/to/image.jpg", 
     "/path/to/another/image.png",
+    "/path/to/document.pdf",
     "/path/to/image/directory", 
     "http://example.com/images"
 ]

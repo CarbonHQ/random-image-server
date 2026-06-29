@@ -39,10 +39,12 @@ async fn test_image_server_populate_cache_with_directory() {
     let temp_dir = TempDir::new().unwrap();
     let image1_path = temp_dir.path().join("test1.jpg");
     let image2_path = temp_dir.path().join("test2.png");
+    let pdf_path = temp_dir.path().join("document.pdf");
     let text_file_path = temp_dir.path().join("readme.txt");
 
     fs::write(&image1_path, vec![0xFF, 0xD8, 0xFF]).unwrap();
     fs::write(&image2_path, vec![0x89, 0x50, 0x4E, 0x47]).unwrap();
+    fs::write(&pdf_path, b"%PDF-1.7\n").unwrap();
     fs::write(&text_file_path, "not an image").unwrap();
 
     let mut config = Config::default();
@@ -51,8 +53,8 @@ async fn test_image_server_populate_cache_with_directory() {
     let server = ImageServer::with_config(config);
     server.populate_cache().await;
 
-    // Should only load image files, not text files
-    assert_eq!(server.state.read().await.cache.size(), 2);
+    // Should only load supported files, not text files
+    assert_eq!(server.state.read().await.cache.size(), 3);
 }
 
 #[tokio::test]

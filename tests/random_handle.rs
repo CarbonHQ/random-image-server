@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use pretty_assertions::assert_eq;
 use random_image_server::{
     cache::{CacheKey, CacheValue},
-    handle_random_image,
+    handle_random_file_by_extension, handle_random_image,
     state::ServerState,
 };
 use tokio::sync::RwLock;
@@ -31,4 +31,59 @@ async fn test_handle_random_image_with_cache() {
 
     let response = result.unwrap();
     assert_eq!(response.status(), hyper::StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_handle_random_file_by_extension_with_cache() {
+    let mut server_state = ServerState::default();
+    server_state
+        .cache
+        .set(
+            CacheKey::ImagePath(PathBuf::from("/test/image.jpg")),
+            CacheValue {
+                data: vec![1, 2, 3, 4],
+                content_type: "image/jpeg".to_string(),
+            },
+        )
+        .unwrap();
+    server_state
+        .cache
+        .set(
+            CacheKey::ImagePath(PathBuf::from("/test/document.pdf")),
+            CacheValue {
+                data: b"%PDF-1.7\n".to_vec(),
+                content_type: "application/pdf".to_string(),
+            },
+        )
+        .unwrap();
+
+    let state = Arc::new(RwLock::new(server_state));
+    let result = handle_random_file_by_extension(state, "pdf").await;
+    assert!(result.is_ok());
+
+    let response = result.unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::OK);
+    assert_eq!(
+        response.headers().get("Content-Type").unwrap(),
+        "application/pdf"
+    );
+}
+
+#[tokio::test]
+async fn test_handle_random_file_by_extension_missing_extension() {
+    let mut server_state = ServerState::default();
+    server_state
+        .cache
+        .set(
+            CacheKey::ImagePath(PathBuf::from("/test/image.jpg")),
+            CacheValue {
+                data: vec![1, 2, 3, 4],
+                content_type: "image/jpeg".to_string(),
+            },
+        )
+        .unwrap();
+
+    let state = Arc::new(RwLock::new(server_state));
+    let result = handle_random_file_by_extension(state, "pdf").await;
+    assert!(result.is_err());
 }

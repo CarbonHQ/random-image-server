@@ -72,6 +72,27 @@ fn test_get_random_single_item() {
 }
 
 #[test]
+fn test_get_random_by_extension() {
+    let mut cache = FileSystemCache::new();
+    let jpg_key = CacheKey::ImagePath(PathBuf::from("/test/image.jpg"));
+    let pdf_key = CacheKey::ImagePath(PathBuf::from("/test/document.pdf"));
+    let jpg_value = CacheValue {
+        data: vec![1, 2, 3, 4],
+        content_type: "image/jpeg".to_string(),
+    };
+    let pdf_value = CacheValue {
+        data: b"%PDF-1.7\n".to_vec(),
+        content_type: "application/pdf".to_string(),
+    };
+
+    cache.set(jpg_key, jpg_value).unwrap();
+    cache.set(pdf_key, pdf_value.clone()).unwrap();
+
+    assert_eq!(cache.get_random_by_extension("pdf"), Some(pdf_value));
+    assert_eq!(cache.get_random_by_extension(".txt"), None);
+}
+
+#[test]
 fn test_clear() {
     let mut cache = FileSystemCache::new();
     let key = CacheKey::ImagePath(PathBuf::from("/test/image.jpg"));
